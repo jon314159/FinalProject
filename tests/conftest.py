@@ -1,4 +1,5 @@
 # tests/conftest.py
+import os
 import socket
 import subprocess
 import time
@@ -37,7 +38,9 @@ logger = logging.getLogger(__name__)
 fake = Faker()
 Faker.seed(12345)
 
-test_engine = get_engine(database_url=settings.DATABASE_URL)
+# Use settings.DATABASE_URL for now
+db_url = settings.DATABASE_URL
+test_engine = get_engine(database_url=db_url)
 TestingSessionLocal = get_sessionmaker(engine=test_engine)
 
 # ======================================================================================
@@ -84,43 +87,56 @@ class ServerStartupError(Exception):
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database(request):
     """
-    Hard reset the Postgres schema at session start and end.
-    This avoids FK drop ordering issues.
+    Hard reset the schema at session start and end.
+    Works on Postgres and falls back for other dialects.
     """
     logger.info("Resetting test schema at session start...")
-    with test_engine.begin() as conn:
-        conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
-        conn.execute(text("CREATE SCHEMA public"))
+
+    if test_engine.dialect.name == "postgresql":
+        with test_engine.begin() as conn:
+            conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+            conn.execute(text("CREATE SCHEMA public"))
+    else:
+        # For sqlite and others
+        Base.metadata.drop_all(bind=test_engine)
 
     # Create tables from SQLAlchemy metadata
     Base.metadata.create_all(bind=test_engine)
     logger.info("Tables created.")
 
-    # If you have a data seeding function that does not run DDL, you can call it here.
-    # from app.database_init import init_db  # noqa
-    # init_db()
-
     yield
 
     if not request.config.getoption("--preserve-db"):
         logger.info("Resetting test schema at session end...")
-        with test_engine.begin() as conn:
-            conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
-            conn.execute(text("CREATE SCHEMA public"))
+        if test_engine.dialect.name == "postgresql":
+            with test_engine.begin() as conn:
+                conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+                conn.execute(text("CREATE SCHEMA public"))
+        else:
+            Base.metadata.drop_all(bind=test_engine)
         logger.info("Schema reset complete.")
 
 # Truncate data before each test
 @pytest.fixture(autouse=True)
 def clean_db():
     """
-    Truncate all tables and reset sequences before each test.
+    Truncate or delete all rows before each test.
     Requires all models to be imported so Base.metadata is complete.
     """
     table_names = [t.name for t in Base.metadata.sorted_tables]
-    if table_names:
+    if not table_names:
+        yield
+        return
+
+    if test_engine.dialect.name == "postgresql":
         sql = "TRUNCATE TABLE " + ", ".join(table_names) + " RESTART IDENTITY CASCADE"
         with test_engine.begin() as conn:
             conn.execute(text(sql))
+    else:
+        # Generic fallback: delete rows table by table
+        with test_engine.begin() as conn:
+            for t in Base.metadata.sorted_tables:
+                conn.execute(text(f"DELETE FROM {t.name}"))
     yield
 
 # ======================================================================================
@@ -142,11 +158,11 @@ def db_session() -> Generator[Session, None, None]:
 def fake_user_data() -> Dict[str, str]:
     return create_fake_user()
 
+# Use model helper so passwords are hashed and uniqueness is enforced
 @pytest.fixture
 def test_user(db_session: Session) -> User:
-    user_data = create_fake_user()
-    user = User(**user_data)
-    db_session.add(user)
+    data = create_fake_user()
+    user = User.register(db_session, data)
     db_session.commit()
     db_session.refresh(user)
     logger.info(f"Created test user ID: {user.id}")
@@ -155,8 +171,10 @@ def test_user(db_session: Session) -> User:
 @pytest.fixture
 def seed_users(db_session: Session, request) -> List[User]:
     num_users = getattr(request, "param", 5)
-    users = [User(**create_fake_user()) for _ in range(num_users)]
-    db_session.add_all(users)
+    users: List[User] = []
+    for _ in range(num_users):
+        u = User.register(db_session, create_fake_user())
+        users.append(u)
     db_session.commit()
     logger.info(f"Seeded {len(users)} users.")
     return users
@@ -179,12 +197,14 @@ def fastapi_server():
             server_url = f"http://127.0.0.1:{base_port}/"
 
     logger.info(f"Starting FastAPI server on port {base_port}...")
+    env = {**os.environ, "DATABASE_URL": db_url, "TEST_DATABASE_URL": db_url}
     process = subprocess.Popen(
         ["uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(base_port)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         cwd=".",
+        env=env,   # ensure the app uses the chosen DB
     )
 
     health_url = f"{server_url}health"
@@ -244,6 +264,7 @@ def page(browser_context: Browser):
 def pytest_addoption(parser):
     parser.addoption("--preserve-db", action="store_true", help="Keep test database after tests")
     parser.addoption("--run-slow", action="store_true", help="Run tests marked as slow")
+    parser.addoption("--e2e", action="store_true", help="Run Playwright end to end tests")
 
 def pytest_collection_modifyitems(config, items):
     if not config.getoption("--run-slow"):
@@ -251,3 +272,9 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if "slow" in item.keywords:
                 item.add_marker(skip_slow)
+
+    if not config.getoption("--e2e"):
+        skip_e2e = pytest.mark.skip(reason="use --e2e to run")
+        for item in items:
+            if "e2e" in item.keywords:
+                item.add_marker(skip_e2e)
