@@ -1,4 +1,40 @@
+version: "3.9"
+
 services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: fastapi_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/00-init-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fastapi_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - app-network
+
+  migrate:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/fastapi_db
+    command: >
+      sh -c "alembic upgrade head"
+    volumes:
+      - .:/app
+    restart: "no"
+    networks:
+      - app-network
+
   web:
     build: .
     ports:
@@ -18,27 +54,8 @@ services:
     command: >
       sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     depends_on:
-      db:
-        condition: service_healthy
-    networks:
-      - app-network
-
-  db:
-    image: postgres:17
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: fastapi_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d fastapi_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      migrate:
+        condition: service_completed_successfully
     networks:
       - app-network
 
@@ -59,9 +76,7 @@ services:
 
 volumes:
   postgres_data:
-    driver: local
   pgadmin_data:
-    driver: local
 
 networks:
   app-network:

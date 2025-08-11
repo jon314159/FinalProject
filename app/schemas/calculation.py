@@ -8,16 +8,19 @@ from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
 
+from app.models.calculation import Modulus
+
 class CalculationType(str, Enum):
     ADDITION = "addition"
     SUBTRACTION = "subtraction"
     MULTIPLICATION = "multiplication"
     DIVISION = "division"
+    MODULUS = "modulus"
 
 class CalculationBase(BaseModel):
     type: CalculationType = Field(
         ...,
-        description="Type of calculation (addition, subtraction, multiplication, division)",
+        description="Type of calculation (addition, subtraction, multiplication, division, modulus)",
         examples=["addition"],
     )
     inputs: List[float] = Field(
