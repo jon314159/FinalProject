@@ -15,6 +15,7 @@ basic mathematical operations: addition, subtraction, multiplication, and divisi
 """
 
 from datetime import datetime
+from unittest import result
 import uuid
 from typing import List
 from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, Float
@@ -178,6 +179,7 @@ class AbstractCalculation:
             'subtraction': Subtraction,
             'multiplication': Multiplication,
             'division': Division,
+            'modulus': Modulus,
         }
         calculation_class = calculation_classes.get(calculation_type.lower())
         if not calculation_class:
@@ -354,3 +356,35 @@ class Division(Calculation):
                 raise ValueError("Cannot divide by zero.")
             result /= value
         return result
+
+class Modulus(Calculation):
+        """
+        Modulus calculation subclass.
+
+        Implements modulus operation (remainder) of the first number by all subsequent numbers.
+        Examples:
+            [10, 3, 2] -> 10 % 3 % 2 = 1
+            [100, 4, 5] -> 100 % 4 % 5 = 0
+        """
+        __mapper_args__ = {"polymorphic_identity": "modulus"}
+
+        def get_result(self) -> float:
+            """
+            Calculate the result of applying the modulus operation sequentially.
+        
+            Takes the first number and applies the modulus operation with all remaining numbers.
+        
+            Returns:
+                float: The result of the modulus sequence
+            
+            Raises:
+                ValueError: If inputs are not a list or if fewer than 2 numbers provided
+            """
+            if not isinstance(self.inputs, list):
+                raise ValueError("Inputs must be a list of numbers.")
+            if len(self.inputs) < 2:
+                raise ValueError("Inputs must be a list with at least two numbers.")
+            result = self.inputs[0]
+            for value in self.inputs[1:]:
+                result %= value
+            return result
