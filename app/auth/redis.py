@@ -1,5 +1,4 @@
-# app/auth/redis.py
-import aioredis
+import redis.asyncio as aioredis
 from app.core.config import get_settings
 
 settings = get_settings()
