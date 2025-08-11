@@ -1,4 +1,4 @@
-from app.database import engine
+from app.database import engine 
 from app.models.user import Base
 
 def init_db():
