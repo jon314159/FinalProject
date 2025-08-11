@@ -1,3 +1,4 @@
+# tests/conftest.py
 import socket
 import subprocess
 import time
@@ -8,26 +9,30 @@ from contextlib import contextmanager
 import pytest
 import requests
 from faker import Faker
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from playwright.sync_api import sync_playwright, Browser, Page
 
 from app.database import Base, get_engine, get_sessionmaker
-from app.models.user import User
 from app.core.config import settings
-from app.database_init import init_db, drop_db
+
+# Import all model modules so Base.metadata is fully populated
+from app.models.user import User
+from app.models.calculation import Calculation
+# If you have more models, import them here
 
 # ======================================================================================
-# Logging Configuration
+# Logging
 # ======================================================================================
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 # ======================================================================================
-# Database Configuration
+# Database setup
 # ======================================================================================
 fake = Faker()
 Faker.seed(12345)
@@ -36,21 +41,19 @@ test_engine = get_engine(database_url=settings.DATABASE_URL)
 TestingSessionLocal = get_sessionmaker(engine=test_engine)
 
 # ======================================================================================
-# Helper Functions
+# Helpers
 # ======================================================================================
 def create_fake_user() -> Dict[str, str]:
-    """Generate a dictionary of fake user data for testing."""
     return {
         "first_name": fake.first_name(),
         "last_name": fake.last_name(),
         "email": fake.unique.email(),
         "username": fake.unique.user_name(),
-        "password": fake.password(length=12)
+        "password": fake.password(length=12),
     }
 
 @contextmanager
 def managed_db_session():
-    """Context manager for safe database session handling."""
     session = TestingSessionLocal()
     try:
         yield session
@@ -61,59 +64,70 @@ def managed_db_session():
     finally:
         session.close()
 
-# ======================================================================================
-# Server Startup / Healthcheck
-# ======================================================================================
 def wait_for_server(url: str, timeout: int = 30) -> bool:
-    """
-    Wait for the server to be ready by repeatedly issuing GET requests until
-    we receive a 200 status code or hit the timeout.
-    """
     start_time = time.time()
     while (time.time() - start_time) < timeout:
         try:
-            response = requests.get(url)
-            if response.status_code == 200:
+            r = requests.get(url)
+            if r.status_code == 200:
                 return True
         except requests.exceptions.ConnectionError:
             time.sleep(1)
     return False
 
 class ServerStartupError(Exception):
-    """Raised when the test server fails to start properly."""
     pass
 
 # ======================================================================================
-# Database Fixtures
+# Schema lifecycle
 # ======================================================================================
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database(request):
     """
-    Set up the test database before the session starts, and tear it down after tests
-    unless --preserve-db is provided.
+    Hard reset the Postgres schema at session start and end.
+    This avoids FK drop ordering issues.
     """
-    logger.info("Setting up test database...")
-    try:
-        Base.metadata.drop_all(bind=test_engine)
-        Base.metadata.create_all(bind=test_engine)
-        init_db()
-        logger.info("Test database initialized.")
-    except Exception as e:
-        logger.error(f"Error setting up test database: {str(e)}")
-        raise
+    logger.info("Resetting test schema at session start...")
+    with test_engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
 
-    yield  # Tests run after this
+    # Create tables from SQLAlchemy metadata
+    Base.metadata.create_all(bind=test_engine)
+    logger.info("Tables created.")
+
+    # If you have a data seeding function that does not run DDL, you can call it here.
+    # from app.database_init import init_db  # noqa
+    # init_db()
+
+    yield
 
     if not request.config.getoption("--preserve-db"):
-        logger.info("Dropping test database tables...")
-        drop_db()
+        logger.info("Resetting test schema at session end...")
+        with test_engine.begin() as conn:
+            conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+            conn.execute(text("CREATE SCHEMA public"))
+        logger.info("Schema reset complete.")
 
+# Truncate data before each test
+@pytest.fixture(autouse=True)
+def clean_db():
+    """
+    Truncate all tables and reset sequences before each test.
+    Requires all models to be imported so Base.metadata is complete.
+    """
+    table_names = [t.name for t in Base.metadata.sorted_tables]
+    if table_names:
+        sql = "TRUNCATE TABLE " + ", ".join(table_names) + " RESTART IDENTITY CASCADE"
+        with test_engine.begin() as conn:
+            conn.execute(text(sql))
+    yield
+
+# ======================================================================================
+# DB session fixtures
+# ======================================================================================
 @pytest.fixture
 def db_session() -> Generator[Session, None, None]:
-    """
-    Provide a test-scoped database session. Commits after a successful test;
-    rolls back if an exception occurs.
-    """
     session = TestingSessionLocal()
     try:
         yield session
@@ -124,19 +138,12 @@ def db_session() -> Generator[Session, None, None]:
     finally:
         session.close()
 
-# ======================================================================================
-# Test Data Fixtures
-# ======================================================================================
 @pytest.fixture
 def fake_user_data() -> Dict[str, str]:
-    """Provide fake user data."""
     return create_fake_user()
 
 @pytest.fixture
 def test_user(db_session: Session) -> User:
-    """
-    Create and return a single test user in the database.
-    """
     user_data = create_fake_user()
     user = User(**user_data)
     db_session.add(user)
@@ -147,10 +154,6 @@ def test_user(db_session: Session) -> User:
 
 @pytest.fixture
 def seed_users(db_session: Session, request) -> List[User]:
-    """
-    Seed multiple test users in the database. By default, 5 users are created
-    unless a 'param' value is provided (e.g., via @pytest.mark.parametrize).
-    """
     num_users = getattr(request, "param", 5)
     users = [User(**create_fake_user()) for _ in range(num_users)]
     db_session.add_all(users)
@@ -159,44 +162,34 @@ def seed_users(db_session: Session, request) -> List[User]:
     return users
 
 # ======================================================================================
-# FastAPI Server Fixture
+# FastAPI server
 # ======================================================================================
 def find_available_port() -> int:
-    """Find an available port for the test server by binding to port 0."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('', 0))
+        s.bind(("", 0))
         return s.getsockname()[1]
 
 @pytest.fixture(scope="session")
 def fastapi_server():
-    """
-    Start a FastAPI test server in a subprocess. If the chosen port (default: 8000)
-    is already in use, find another available port. Wait until the server is up
-    before yielding its base URL.
-    """
     base_port = 8000
-    server_url = f'http://127.0.0.1:{base_port}/'
-
-    # Check if port is free; if not, pick an available port
+    server_url = f"http://127.0.0.1:{base_port}/"
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        if s.connect_ex(('127.0.0.1', base_port)) == 0:
+        if s.connect_ex(("127.0.0.1", base_port)) == 0:
             base_port = find_available_port()
-            server_url = f'http://127.0.0.1:{base_port}/'
+            server_url = f"http://127.0.0.1:{base_port}/"
 
     logger.info(f"Starting FastAPI server on port {base_port}...")
-
     process = subprocess.Popen(
-        ['uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', str(base_port)],
+        ["uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(base_port)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        cwd='.'  # ensure the working directory is set correctly
+        cwd=".",
     )
 
-    # IMPORTANT: Use the /health endpoint for the check!
     health_url = f"{server_url}health"
     if not wait_for_server(health_url, timeout=30):
-        stderr = process.stderr.read()
+        stderr = process.stderr.read() if process.stderr is not None else ""
         logger.error(f"Server failed to start. Uvicorn error: {stderr}")
         process.terminate()
         raise ServerStartupError(f"Failed to start test server on {health_url}")
@@ -214,15 +207,14 @@ def fastapi_server():
         logger.warning("Test server forcefully stopped.")
 
 # ======================================================================================
-# Playwright Fixtures for UI Testing
+# Playwright
 # ======================================================================================
 @pytest.fixture(scope="session")
 def browser_context():
-    """Provide a Playwright browser context for UI tests (session-scoped)."""
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             headless=True,
-            args=['--no-sandbox', '--disable-dev-shm-usage']
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
         )
         logger.info("Playwright browser launched.")
         try:
@@ -233,13 +225,9 @@ def browser_context():
 
 @pytest.fixture
 def page(browser_context: Browser):
-    """
-    Provide a new browser page for each test, with a standard viewport.
-    Closes the page and context after each test.
-    """
     context = browser_context.new_context(
-        viewport={'width': 1920, 'height': 1080},
-        ignore_https_errors=True
+        viewport={"width": 1920, "height": 1080},
+        ignore_https_errors=True,
     )
     page = context.new_page()
     logger.info("New browser page created.")
@@ -251,21 +239,13 @@ def page(browser_context: Browser):
         context.close()
 
 # ======================================================================================
-# Pytest Command-Line Options
+# Pytest CLI
 # ======================================================================================
 def pytest_addoption(parser):
-    """
-    Add custom command line options:
-      --preserve-db : Keep test database after tests
-      --run-slow    : Run tests marked as 'slow'
-    """
     parser.addoption("--preserve-db", action="store_true", help="Keep test database after tests")
     parser.addoption("--run-slow", action="store_true", help="Run tests marked as slow")
 
 def pytest_collection_modifyitems(config, items):
-    """
-    Skip tests marked as 'slow' unless --run-slow is specified.
-    """
     if not config.getoption("--run-slow"):
         skip_slow = pytest.mark.skip(reason="use --run-slow to run")
         for item in items:
