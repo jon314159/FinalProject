@@ -3,10 +3,32 @@ from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
 
 class UserBase(BaseModel):
     """Base user schema with common fields."""
-    first_name: str = Field(max_length=50, example="John")
-    last_name: str = Field(max_length=50, example="Doe")
-    email: EmailStr = Field(example="john.doe@example.com")
-    username: str = Field(min_length=3, max_length=50, example="johndoe")
+    first_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        examples=["John"],
+        description="User's first name"
+    )
+    last_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        examples=["Doe"],
+        description="User's last name"
+    )
+    email: EmailStr = Field(
+        ...,
+        examples=["john.doe@example.com"],
+        description="User's email address"
+    )
+    username: str = Field(
+        ...,
+        min_length=3,
+        max_length=50,
+        examples=["johndoe"],
+        description="User's unique username"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -14,7 +36,7 @@ class PasswordMixin(BaseModel):
     password: str = Field(
         ...,
         min_length=8,
-        example="SecurePass123!",
+        examples=["SecurePass123!"],
         description="Password"
     )
 
@@ -26,7 +48,7 @@ class PasswordMixin(BaseModel):
             raise ValueError("Password must contain at least one lowercase letter")
         if not any(char.isdigit() for char in self.password):
             raise ValueError("Password must contain at least one digit")
-        # Removed special character check so that "SecurePass123" is valid.
+        # No special character requirement so "SecurePass123" is valid.
         return self
 
     model_config = ConfigDict(from_attributes=True)
@@ -43,5 +65,14 @@ class UserLogin(BaseModel):
     Schema for user login credentials.
     Contains the username and password.
     """
-    username: str = Field(min_length=3, max_length=50, example="johndoe")
-    password: str = Field(min_length=8, example="supersecretpassword")
+    username: str = Field(
+        ...,
+        min_length=3,
+        max_length=50,
+        examples=["johndoe"]
+    )
+    password: str = Field(
+        ...,
+        min_length=8,
+        examples=["supersecretpassword"]
+    )

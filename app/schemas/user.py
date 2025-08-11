@@ -8,25 +8,29 @@ from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
 class UserBase(BaseModel):
     """Base user schema with common fields"""
     first_name: str = Field(
+        ...,
         min_length=1,
         max_length=50,
-        example="John",
+        examples=["John"],
         description="User's first name"
     )
     last_name: str = Field(
+        ...,
         min_length=1,
         max_length=50,
-        example="Doe",
+        examples=["Doe"],
         description="User's last name"
     )
     email: EmailStr = Field(
-        example="john.doe@example.com",
+        ...,
+        examples=["john.doe@example.com"],
         description="User's email address"
     )
     username: str = Field(
+        ...,
         min_length=3,
         max_length=50,
-        example="johndoe",
+        examples=["johndoe"],
         description="User's unique username"
     )
 
@@ -35,15 +39,17 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     """Schema for user creation with password validation"""
     password: str = Field(
+        ...,
         min_length=8,
         max_length=128,
-        example="SecurePass123!",
+        examples=["SecurePass123!"],
         description="User's password (8-128 characters)"
     )
     confirm_password: str = Field(
+        ...,
         min_length=8,
         max_length=128,
-        example="SecurePass123!",
+        examples=["SecurePass123!"],
         description="Password confirmation"
     )
 
@@ -72,14 +78,16 @@ class UserCreate(UserBase):
 
     model_config = ConfigDict(
         json_schema_extra={
-            "example": {
-                "first_name": "John",
-                "last_name": "Doe",
-                "email": "john.doe@example.com",
-                "username": "johndoe",
-                "password": "SecurePass123!",
-                "confirm_password": "SecurePass123!"
-            }
+            "examples": [
+                {
+                    "first_name": "John",
+                    "last_name": "Doe",
+                    "email": "john.doe@example.com",
+                    "username": "johndoe",
+                    "password": "SecurePass123!",
+                    "confirm_password": "SecurePass123!"
+                }
+            ]
         }
     )
 
@@ -103,23 +111,25 @@ class UserLogin(BaseModel):
         ...,
         min_length=3,
         max_length=50,
-        example="johndoe",
+        examples=["johndoe"],
         description="Username or email"
     )
     password: str = Field(
         ...,
         min_length=8,
         max_length=128,
-        example="SecurePass123!",
+        examples=["SecurePass123!"],
         description="Password"
     )
 
     model_config = ConfigDict(
         json_schema_extra={
-            "example": {
-                "username": "johndoe",
-                "password": "SecurePass123!"
-            }
+            "examples": [
+                {
+                    "username": "johndoe",
+                    "password": "SecurePass123!"
+                }
+            ]
         }
     )
 
@@ -129,26 +139,26 @@ class UserUpdate(BaseModel):
         None,
         min_length=1,
         max_length=50,
-        example="John",
+        examples=["John"],
         description="User's first name"
     )
     last_name: Optional[str] = Field(
         None,
         min_length=1,
         max_length=50,
-        example="Doe",
+        examples=["Doe"],
         description="User's last name"
     )
     email: Optional[EmailStr] = Field(
         None,
-        example="john.doe@example.com",
+        examples=["john.doe@example.com"],
         description="User's email address"
     )
     username: Optional[str] = Field(
         None,
         min_length=3,
         max_length=50,
-        example="johndoe",
+        examples=["johndoe"],
         description="User's unique username"
     )
 
@@ -160,21 +170,21 @@ class PasswordUpdate(BaseModel):
         ...,
         min_length=8,
         max_length=128,
-        example="OldPass123!",
+        examples=["OldPass123!"],
         description="Current password"
     )
     new_password: str = Field(
         ...,
         min_length=8,
         max_length=128,
-        example="NewPass123!",
+        examples=["NewPass123!"],
         description="New password"
     )
     confirm_new_password: str = Field(
         ...,
         min_length=8,
         max_length=128,
-        example="NewPass123!",
+        examples=["NewPass123!"],
         description="Confirm new password"
     )
 
@@ -189,10 +199,12 @@ class PasswordUpdate(BaseModel):
 
     model_config = ConfigDict(
         json_schema_extra={
-            "example": {
-                "current_password": "OldPass123!",
-                "new_password": "NewPass123!",
-                "confirm_new_password": "NewPass123!"
-            }
+            "examples": [
+                {
+                    "current_password": "OldPass123!",
+                    "new_password": "NewPass123!",
+                    "confirm_new_password": "NewPass123!"
+                }
+            ]
         }
     )
