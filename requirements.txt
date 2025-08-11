@@ -39,7 +39,7 @@ pytest-coverage==0.0
 python-dotenv==1.0.1
 python-jose==3.3.0
 python-multipart==0.0.20
-python redis==5.0.0
+redis==5.0.0
 requests==2.32.3
 rsa==4.9
 setuptools>=70.0.0
