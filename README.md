@@ -1,264 +1,215 @@
-# 📦 Project Setup
+```markdown
+# 📐 Calculator API
+
+A FastAPI-based calculator service with **user authentication**, **PostgreSQL** database, and **JWT token-based security**.  
+It supports basic and advanced calculations, securely stores user history, and provides a modern developer experience with CI/CD, Docker, and Alembic migrations.
 
 ---
 
-# 🧩 1. Install Homebrew (Mac Only)
+## ✨ Features
 
-> Skip this step if you're on Windows.
-
-Homebrew is a package manager for macOS.  
-You’ll use it to easily install Git, Python, Docker, etc.
-
-**Install Homebrew:**
-
-```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-**Verify Homebrew:**
-
-```bash
-brew --version
-```
-
-If you see a version number, you're good to go.
+- **User registration & login** (JWT authentication)
+- **Secure password hashing** with bcrypt
+- **Access & refresh token system**
+- **Create, read, update, and delete** calculation history
+- **Supports multiple calculation types** (basic arithmetic, advanced operations, etc.)
+- **Search & filter** past calculations
+- **PostgreSQL** database with Alembic migrations
+- **Fully containerized** with Docker & Docker Compose
+- **pgAdmin** for easy DB management
+- **CI/CD pipeline** with tests, vulnerability scans, and Docker Hub deployments
 
 ---
 
-# 🧩 2. Install and Configure Git
+## 📡 API Endpoints
 
-## Install Git
+When running locally, the API documentation is available at:  
+**Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)  
+**ReDoc:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
-- **MacOS (using Homebrew)**
-
-```bash
-brew install git
-```
-
-- **Windows**
-
-Download and install [Git for Windows](https://git-scm.com/download/win).  
-Accept the default options during installation.
-
-**Verify Git:**
-
-```bash
-git --version
-```
+**Example Routes:**
+- `POST /auth/register` → Create a new user
+- `POST /auth/login` → Get access & refresh tokens
+- `POST /calculations` → Perform a calculation and store the result
+- `GET /calculations` → Retrieve authenticated user's calculations
+- `GET /calculations/{id}` → Get a specific calculation
+- `DELETE /calculations/{id}` → Remove a calculation
 
 ---
 
-## Configure Git Globals
+## 🚀 Run with Docker Compose
 
-Set your name and email so Git tracks your commits properly:
+**Requirements:**
+- Docker
+- Docker Compose
 
-```bash
-git config --global user.name "Your Name"
-git config --global user.email "your_email@example.com"
 ```
 
-Confirm the settings:
+docker compose up --build
 
-```bash
-git config --list
 ```
 
----
+**Services:**
+- **API:** http://localhost:8000  
+- **Swagger UI:** http://localhost:8000/docs  
+- **ReDoc:** http://localhost:8000/redoc  
+- **pgAdmin:** http://localhost:5050 (email: `admin@example.com`, password: `admin`)  
 
-## Generate SSH Keys and Connect to GitHub
-
-> Only do this once per machine.
-
-1. Generate a new SSH key:
-
-```bash
-ssh-keygen -t ed25519 -C "your_email@example.com"
+**Stop and remove:**
 ```
 
-(Press Enter at all prompts.)
+docker compose down
+docker compose down -v   # also remove DB data
 
-2. Start the SSH agent:
-
-```bash
-eval "$(ssh-agent -s)"
-```
-
-3. Add the SSH private key to the agent:
-
-```bash
-ssh-add ~/.ssh/id_ed25519
-```
-
-4. Copy your SSH public key:
-
-- **Mac/Linux:**
-
-```bash
-cat ~/.ssh/id_ed25519.pub | pbcopy
-```
-
-- **Windows (Git Bash):**
-
-```bash
-cat ~/.ssh/id_ed25519.pub | clip
-```
-
-5. Add the key to your GitHub account:
-   - Go to [GitHub SSH Settings](https://github.com/settings/keys)
-   - Click **New SSH Key**, paste the key, save.
-
-6. Test the connection:
-
-```bash
-ssh -T git@github.com
-```
-
-You should see a success message.
-
----
-
-# 🧩 3. Clone the Repository
-
-Now you can safely clone the course project:
-
-```bash
-git clone <repository-url>
-cd <repository-directory>
 ```
 
 ---
 
-# 🛠️ 4. Install Python 3.10+
+## 🖥 Run without Docker
 
-## Install Python
+**1. Start PostgreSQL** and create:
+- `fastapi_db`
+- `fastapi_test_db`
 
-- **MacOS (Homebrew)**
-
-```bash
-brew install python
+**2. Set environment variables:**
 ```
 
-- **Windows**
+export DATABASE\_URL="postgresql://postgres\:postgres\@localhost:5432/fastapi\_db"
+export TEST\_DATABASE\_URL="postgresql://postgres\:postgres\@localhost:5432/fastapi\_test\_db"
+export JWT\_SECRET\_KEY="replace-with-32-chars-min"
+export JWT\_REFRESH\_SECRET\_KEY="replace-with-32-chars-min"
 
-Download and install [Python for Windows](https://www.python.org/downloads/).  
-✅ Make sure you **check the box** `Add Python to PATH` during setup.
-
-**Verify Python:**
-
-```bash
-python3 --version
-```
-or
-```bash
-python --version
 ```
 
----
-
-## Create and Activate a Virtual Environment
-
-(Optional but recommended)
-
-```bash
-python3 -m venv venv
-source venv/bin/activate   # Mac/Linux
-venv\Scripts\activate.bat  # Windows
+**3. Install dependencies:**
 ```
 
-### Install Required Packages
-
-```bash
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install --upgrade pip
 pip install -r requirements.txt
+
+```
+
+**4. Run Alembic migrations:**
+```
+
+alembic upgrade head
+
+```
+
+**5. Start the API:**
+```
+
+uvicorn app.main\:app --reload --port 8000
+
 ```
 
 ---
 
-# 🐳 5. (Optional) Docker Setup
+## 🧪 Run Tests
 
-> Skip if Docker isn't used in this module.
-
-## Install Docker
-
-- [Install Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/)
-- [Install Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/)
-
-## Build Docker Image
-
-```bash
-docker build -t <image-name> .
+### Inside Docker
 ```
 
-## Run Docker Container
+docker compose up -d
+docker compose exec web pytest -q
 
-```bash
-docker run -it --rm <image-name>
 ```
 
----
-
-# 🚀 6. Running the Project
-
-- **Without Docker**:
-
-```bash
-python main.py
+**With coverage:**
 ```
 
-(or update this if the main script is different.)
+docker compose exec web coverage run -m pytest
+docker compose exec web coverage report -m
 
-- **With Docker**:
+```
 
-```bash
-docker run -it --rm <image-name>
+### On Host
+```
+
+export TEST\_DATABASE\_URL="postgresql://postgres\:postgres\@localhost:5432/fastapi\_test\_db"
+pytest -q
+
+```
+
+**Playwright setup (for e2e tests):**
+```
+
+playwright install
+pytest tests/e2e/
+
 ```
 
 ---
 
-# 📝 7. Submission Instructions
+## 🔄 CI/CD Pipeline
 
-After finishing your work:
+- Spins up PostgreSQL in GitHub Actions
+- Installs Python dependencies and Playwright
+- Runs:
+  - Unit tests (`tests/unit/`)
+  - Integration tests (`tests/integration/`)
+  - E2E tests (`tests/e2e/`)
+- Builds Docker image
+- Scans with **Trivy** (fails on HIGH/CRITICAL vulnerabilities)
+- Pushes multi-arch image to Docker Hub on `main` branch
 
-```bash
-git add .
-git commit -m "Complete Module X"
-git push origin main
+---
+
+## 📦 Docker Hub Repository
+
+**[jonathancapalbo1/finalproject](https://hub.docker.com/r/jonathancapalbo1/finalproject)**
+
+**Pull & Run:**
 ```
 
-Then submit the GitHub repository link as instructed.
+docker pull jonathancapalbo1/finalproject\:latest
+docker run -p 8000:8000&#x20;
+-e DATABASE\_URL="postgresql://postgres\:postgres\@host.docker.internal:5432/fastapi\_db"&#x20;
+-e JWT\_SECRET\_KEY="replace-with-32-chars-min"&#x20;
+-e JWT\_REFRESH\_SECRET\_KEY="replace-with-32-chars-min"&#x20;
+jonathancapalbo1/finalproject\:latest
+
+```
 
 ---
 
-# 🔥 Useful Commands Cheat Sheet
+## 🔧 Common Commands
 
-| Action                         | Command                                          |
-| ------------------------------- | ------------------------------------------------ |
-| Install Homebrew (Mac)          | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` |
-| Install Git                     | `brew install git` or Git for Windows installer |
-| Configure Git Global Username  | `git config --global user.name "Your Name"`      |
-| Configure Git Global Email     | `git config --global user.email "you@example.com"` |
-| Clone Repository                | `git clone <repo-url>`                          |
-| Create Virtual Environment     | `python3 -m venv venv`                           |
-| Activate Virtual Environment   | `source venv/bin/activate` / `venv\Scripts\activate.bat` |
-| Install Python Packages        | `pip install -r requirements.txt`               |
-| Build Docker Image              | `docker build -t <image-name> .`                |
-| Run Docker Container            | `docker run -it --rm <image-name>`               |
-| Push Code to GitHub             | `git add . && git commit -m "message" && git push` |
+```
+
+# Apply migrations
+
+docker compose run --rm migrate
+
+# Shell inside container
+
+docker compose exec web bash
+
+# Logs
+
+docker compose logs -f web
+docker compose logs -f db
+
+# Create Alembic migration
+
+alembic revision --autogenerate -m "describe changes"
+alembic upgrade head
+
+```
 
 ---
 
-# 📋 Notes
+## ⚠ Security Notes
 
-- Install **Homebrew** first on Mac.
-- Install and configure **Git** and **SSH** before cloning.
-- Use **Python 3.10+** and **virtual environments** for Python projects.
-- **Docker** is optional depending on the project.
+- Use **strong 32+ character secrets** for JWT keys
+- Never commit secrets to GitHub — use env vars or GitHub Secrets
+- Run a local Trivy scan:
+```
 
----
+docker build -t app\:test .
+trivy image --severity HIGH,CRITICAL --exit-code 1 app\:test
 
-# 📎 Quick Links
-
-- [Homebrew](https://brew.sh/)
-- [Git Downloads](https://git-scm.com/downloads)
-- [Python Downloads](https://www.python.org/downloads/)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-- [GitHub SSH Setup Guide](https://docs.github.com/en/authentication/connecting-to-github-with-ssh)
+```
+```
