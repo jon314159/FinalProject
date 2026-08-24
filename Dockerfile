@@ -1,41 +1,31 @@
-FROM python:3.10-slim
+FROM python:3.13-slim
 
-# Set environment variables for Python
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends gcc python3-dev libssl-dev curl && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get upgrade --yes \
+    && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and essential Python tools
-RUN python -m pip install --upgrade pip setuptools>=70.0.0 wheel
+RUN groupadd --system appgroup \
+    && useradd --system --gid appgroup --create-home appuser
 
-# Create non-root user
-RUN groupadd -r appgroup && \
-    useradd -r -g appgroup appuser
+COPY requirements.txt ./
+# Packaging tools are only needed while dependencies are installed. Removing
+# them also removes pip's vendored msgpack from the runtime image.
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r requirements.txt \
+    && python -m pip uninstall --yes setuptools pip
 
-# Copy dependencies and install them
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY --chown=appuser:appgroup . .
 
-# Copy application code
-COPY . .
-
-# Ensure correct ownership
-RUN chown -R appuser:appgroup /app
-
-# Switch to non-root user
 USER appuser
 
-# Health check for the service
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)" || exit 1
 
-# Run database initialization before starting the app
-CMD python -m app.database_init && \
-    uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"]

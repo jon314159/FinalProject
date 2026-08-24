@@ -74,6 +74,8 @@ class UserCreate(UserBase):
             raise ValueError("Password must contain at least one digit")
         if not any(char in "!@#$%^&*()_+-=[]{}|;:,.<>?" for char in password):
             raise ValueError("Password must contain at least one special character")
+        if len(password.encode("utf-8")) > 72:
+            raise ValueError("Password must not exceed 72 UTF-8 bytes")
         return self
 
     model_config = ConfigDict(

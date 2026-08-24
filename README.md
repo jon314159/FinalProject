@@ -1,135 +1,131 @@
+# Calculator API
 
+A FastAPI calculator with a browser interface, PostgreSQL persistence, JWT authentication, Alembic migrations, and Docker-based delivery.
 
----
+## Features
 
-````markdown
-# 📐 Calculator API
+- Registration and login with bcrypt password hashing
+- Access and refresh JWTs with separate signing secrets
+- User-scoped calculation history
+- Addition, subtraction, multiplication, division, and modulus
+- Create, list, view, update, and delete operations
+- PostgreSQL in Docker and isolated SQLite tests by default
+- Unit, integration, and Playwright end-to-end tests
+- Dependency and container vulnerability checks in CI
 
-A FastAPI-based calculator service with **user authentication**, **PostgreSQL** database, and **JWT token-based security**.  
-It supports basic arithmetic and advanced calculations, securely stores user history, and provides a modern developer experience with CI/CD, Docker, and Alembic migrations.
+## Quick start with Docker
 
----
+Requirements: Docker Desktop or Docker Engine with Compose.
 
-## ✨ Features
-
-- User registration & login (JWT authentication)
-- Secure password hashing with bcrypt
-- Access & refresh token system
-- CRUD operations on calculation history
-- Supported calculation types:
-  - addition
-  - subtraction
-  - multiplication
-  - division
-  - modulus
-- PostgreSQL database with Alembic migrations
-- Fully containerized with Docker & Docker Compose
-- pgAdmin for DB management
-- CI/CD pipeline with tests, security scans, and Docker Hub deployments
-
----
-
-## 📡 API Endpoints
-
-When running locally:
-
-- Swagger UI → http://localhost:8000/docs  
-- ReDoc → http://localhost:8000/redoc  
-
----
-
-## 📄 API Usage Examples
-
-### 1. Register a User
-
-**Request**
-```http
-POST /auth/register
-Content-Type: application/json
-````
-
-```json
-{
-  "first_name": "John",
-  "last_name": "Doe",
-  "email": "john.doe@example.com",
-  "username": "johndoe",
-  "password": "SecurePass123!",
-  "confirm_password": "SecurePass123!"
-}
+```bash
+docker compose up --build
 ```
 
-**Response**
+Once the services are healthy:
 
-```http
-201 Created
+- App: <http://localhost:8000>
+- Swagger UI: <http://localhost:8000/docs>
+- ReDoc: <http://localhost:8000/redoc>
+- pgAdmin: <http://localhost:5050>
+
+The local pgAdmin login is `admin@example.com` / `admin`. These development credentials must not be used for a public deployment.
+
+Stop the stack with:
+
+```bash
+docker compose down
 ```
 
-```json
-{
-  "id": "123e4567-e89b-12d3-a456-426614174000",
-  "username": "johndoe",
-  "email": "john.doe@example.com",
-  "first_name": "John",
-  "last_name": "Doe",
-  "is_active": true,
-  "is_verified": false,
-  "created_at": "2025-01-01T00:00:00",
-  "updated_at": "2025-01-01T00:00:00"
-}
+Add `-v` only when you intentionally want to delete the local database volumes.
+
+## Local development
+
+Python 3.13 is used by CI and the production image.
+
+```bash
+python -m venv .venv
 ```
 
----
+Activate the environment:
 
-### 2. Login
+```bash
+# macOS or Linux
+source .venv/bin/activate
 
-**Request**
-
-```http
-POST /auth/login
-Content-Type: application/json
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
 ```
 
-```json
-{
-  "username": "johndoe",
-  "password": "SecurePass123!"
-}
+Install the development dependencies:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
 ```
 
-**Response**
+Set the application configuration. PowerShell uses `$env:NAME="value"`; the example below uses POSIX shell syntax.
 
-```http
-200 OK
+```bash
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/fastapi_db"
+export JWT_SECRET_KEY="replace-with-a-random-secret-at-least-32-characters"
+export JWT_REFRESH_SECRET_KEY="replace-with-another-random-secret-at-least-32-characters"
 ```
 
-```json
-{
-  "access_token": "<JWT_ACCESS_TOKEN>",
-  "refresh_token": "<JWT_REFRESH_TOKEN>",
-  "token_type": "bearer",
-  "expires_at": "2025-01-01T00:00:00",
-  "user_id": "123e4567-e89b-12d3-a456-426614174000",
-  "username": "johndoe",
-  "email": "john.doe@example.com",
-  "first_name": "John",
-  "last_name": "Doe",
-  "is_active": true,
-  "is_verified": false
-}
+Apply migrations and start the server:
+
+```bash
+alembic upgrade head
+uvicorn app.main:app --reload --port 8000
 ```
 
----
+## Tests
 
-### 3. Create a Calculation
+Unit and integration tests use an isolated in-memory SQLite database unless `TEST_DATABASE_URL` is explicitly set. They do not fall back to `DATABASE_URL`.
 
-**Request**
-
-```http
-POST /calculations
-Authorization: Bearer <JWT_ACCESS_TOKEN>
-Content-Type: application/json
+```bash
+pytest tests/unit tests/integration
 ```
+
+To run the same tests against PostgreSQL:
+
+```bash
+export TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/fastapi_test_db"
+pytest tests/unit tests/integration
+```
+
+Install Chromium and run the end-to-end suite:
+
+```bash
+playwright install chromium
+pytest tests/e2e --e2e
+```
+
+Audit the complete dependency set:
+
+```bash
+python -m pip_audit -r requirements-dev.txt
+```
+
+## API
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/auth/register` | Register an account |
+| `POST` | `/auth/login` | Return access and refresh tokens |
+| `POST` | `/auth/token` | OAuth2 form login |
+| `POST` | `/auth/refresh` | Exchange a refresh token for a fresh pair |
+| `GET` | `/auth/me` | Return the current database user |
+| `POST` | `/calculations` | Create a calculation |
+| `GET` | `/calculations` | List the current user's calculations |
+| `GET` | `/calculations/{id}` | View one calculation |
+| `PUT` | `/calculations/{id}` | Update a calculation's inputs |
+| `DELETE` | `/calculations/{id}` | Delete a calculation |
+| `GET` | `/health` | Process health check |
+| `GET` | `/health/db` | Database health check |
+
+Protected endpoints require `Authorization: Bearer <access-token>`. Resource queries are scoped to the authenticated user's database ID.
+
+Example calculation request:
 
 ```json
 {
@@ -138,262 +134,39 @@ Content-Type: application/json
 }
 ```
 
-**Response**
+## Migrations
 
-```http
-201 Created
-```
-
-```json
-{
-  "id": "123e4567-e89b-12d3-a456-426614174999",
-  "type": "addition",
-  "inputs": [10.5, 3, 2],
-  "result": 15.5,
-  "user_id": "123e4567-e89b-12d3-a456-426614174000",
-  "created_at": "2025-01-01T00:00:00",
-  "updated_at": "2025-01-01T00:00:00"
-}
-```
-
----
-
-### 4. List Calculations
-
-**Request**
-
-```http
-GET /calculations
-Authorization: Bearer <JWT_ACCESS_TOKEN>
-```
-
-**Response**
-
-```http
-200 OK
-```
-
-```json
-[
-  {
-    "id": "123e4567-e89b-12d3-a456-426614174999",
-    "type": "addition",
-    "inputs": [10.5, 3, 2],
-    "result": 15.5,
-    "user_id": "123e4567-e89b-12d3-a456-426614174000",
-    "created_at": "2025-01-01T00:00:00",
-    "updated_at": "2025-01-01T00:00:00"
-  }
-]
-```
-
----
-
-### 5. Update a Calculation
-
-**Request**
-
-```http
-PUT /calculations/123e4567-e89b-12d3-a456-426614174999
-Authorization: Bearer <JWT_ACCESS_TOKEN>
-Content-Type: application/json
-```
-
-```json
-{
-  "inputs": [42, 7]
-}
-```
-
-**Response**
-
-```http
-200 OK
-```
-
-```json
-{
-  "id": "123e4567-e89b-12d3-a456-426614174999",
-  "type": "addition",
-  "inputs": [42, 7],
-  "result": 49,
-  "user_id": "123e4567-e89b-12d3-a456-426614174000",
-  "created_at": "2025-01-01T00:00:00",
-  "updated_at": "2025-01-02T00:00:00"
-}
-```
-
----
-
-### 6. Delete a Calculation
-
-**Request**
-
-```http
-DELETE /calculations/123e4567-e89b-12d3-a456-426614174999
-Authorization: Bearer <JWT_ACCESS_TOKEN>
-```
-
-**Response**
-
-```http
-204 No Content
-```
-
----
-
-## 🚀 Run with Docker Compose
-
-**Requirements:**
-
-* Docker
-* Docker Compose
-
-```
-docker compose up --build
-```
-
-Services:
-
-* API → [http://localhost:8000](http://localhost:8000)
-* Swagger UI → [http://localhost:8000/docs](http://localhost:8000/docs)
-* ReDoc → [http://localhost:8000/redoc](http://localhost:8000/redoc)
-* pgAdmin → [http://localhost:5050](http://localhost:5050) (email: `admin@example.com`, password: `admin`)
-
-Stop and remove:
-
-```
-docker compose down
-docker compose down -v
-```
-
----
-
-## 🖥 Run without Docker
-
-**1. Start PostgreSQL** and create:
-
-* `fastapi_db`
-* `fastapi_test_db`
-
-**2. Set environment variables:**
-
-```
-export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/fastapi_db"
-export TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/fastapi_test_db"
-export JWT_SECRET_KEY="replace-with-32-chars-min"
-export JWT_REFRESH_SECRET_KEY="replace-with-32-chars-min"
-```
-
-**3. Install dependencies:**
-
-```
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-**4. Run Alembic migrations:**
-
-```
+```bash
 alembic upgrade head
+alembic downgrade -1
+alembic revision --autogenerate -m "describe the change"
+alembic check
 ```
 
-**5. Start the API:**
+The Docker Compose `migrate` service applies migrations before the development web service starts. The production image also applies pending migrations before launching Uvicorn.
 
-```
-uvicorn app.main:app --reload --port 8000
-```
+## Container image
 
----
+The CI workflow publishes successful `main` builds to:
 
-## 🧪 Run Tests
-
-**Inside Docker**
-
-```
-docker compose up -d
-docker compose exec web pytest -q
+```text
+jonathancapalbo1/finalproject:latest
+jonathancapalbo1/finalproject:<git-sha>
 ```
 
-**With coverage**
+For a standalone container, point `DATABASE_URL` to an accessible PostgreSQL server and supply unique JWT secrets:
 
-```
-docker compose exec web coverage run -m pytest
-docker compose exec web coverage report -m
-```
-
-**On Host**
-
-```
-export TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/fastapi_test_db"
-pytest -q
-```
-
-**Playwright setup (for e2e tests)**
-
-```
-playwright install
-pytest tests/e2e/
-```
-
----
-
-## 📦 Docker Hub
-
-**[jonathancapalbo1/finalproject](https://hub.docker.com/r/jonathancapalbo1/finalproject)**
-
-**Pull & run**
-
-```
-docker pull jonathancapalbo1/finalproject:latest
-docker run -p 8000:8000 \
+```bash
+docker run --rm -p 8000:8000 \
   -e DATABASE_URL="postgresql://postgres:postgres@host.docker.internal:5432/fastapi_db" \
-  -e JWT_SECRET_KEY="replace-with-32-chars-min" \
-  -e JWT_REFRESH_SECRET_KEY="replace-with-32-chars-min" \
+  -e JWT_SECRET_KEY="replace-with-a-random-secret-at-least-32-characters" \
+  -e JWT_REFRESH_SECRET_KEY="replace-with-another-random-secret-at-least-32-characters" \
   jonathancapalbo1/finalproject:latest
 ```
 
----
+## Security notes
 
-## 🔧 Common Commands
-
-**Apply migrations**
-
-```
-docker compose run --rm migrate
-```
-
-**Shell inside container**
-
-```
-docker compose exec web bash
-```
-
-**Logs**
-
-```
-docker compose logs -f web
-docker compose logs -f db
-```
-
-**Create Alembic migration**
-
-```
-alembic revision --autogenerate -m "describe changes"
-alembic upgrade head
-```
-
----
-
-## ⚠ Security Notes
-
-* Use strong 32+ character secrets for JWT keys
-* Never commit secrets — use env vars or GitHub Secrets
-* Run a local Trivy scan:
-
-```
-docker build -t app:test .
-trivy image --severity HIGH,CRITICAL --exit-code 1 app:test
-```
+- Never commit `.env` or production secrets.
+- Use separate, randomly generated access and refresh signing keys.
+- Configure `CORS_ORIGINS` for the deployed frontend rather than allowing arbitrary origins.
+- The bundled browser UI stores tokens in browser storage and is intended as a project interface. A public production frontend should use hardened cookie and CSRF controls.

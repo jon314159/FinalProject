@@ -294,6 +294,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         result = inputs.reduce((a, b, i) => i === 0 ? a : a / b, inputs[0]);
         break;
+      case 'modulus':
+        if (inputs.some((value, index) => index > 0 && value === 0)) {
+          return 'Cannot calculate modulus by zero';
+        }
+        result = inputs.reduce((a, b, i) => i === 0 ? a : a % b, inputs[0]);
+        break;
       default:
         return 'Unknown operation';
     }
@@ -309,11 +315,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Function to update the preview
   function updatePreview() {
     const type = calcTypeInput.value;
-    const inputsString = calcInputsInput.value;
-    const inputs = inputsString
+    const inputParts = calcInputsInput.value
       .split(',')
-      .map(num => parseFloat(num.trim()))
-      .filter(num => !isNaN(num));
+      .map(value => value.trim());
+    const inputs = inputParts.map(Number);
     
     // Create appropriate operator symbol
     let operator;
@@ -330,12 +335,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       case 'division':
         operator = '÷';
         break;
+      case 'modulus':
+        operator = '%';
+        break;
       default:
         operator = '?';
     }
     
     // Update preview section
-    if (inputs.length < 2) {
+    if (inputs.length < 2 || inputParts.some(value => value === '') || inputs.some(value => !Number.isFinite(value))) {
       previewResult.innerHTML = `
         <p class="text-gray-500 text-center">
           Enter at least two valid numbers to see the preview
@@ -423,14 +431,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const submitButton = e.target.querySelector('button[type="submit"]');
     const originalButtonContent = submitButton.innerHTML;
     
-    // Parse input string into an array of floats
-    const newInputs = calcInputsInput.value
+    // Parse the complete input; reject malformed or non-finite values.
+    const inputParts = calcInputsInput.value
       .split(',')
-      .map(num => parseFloat(num.trim()))
-      .filter(num => !isNaN(num));
+      .map(value => value.trim());
+    const newInputs = inputParts.map(Number);
 
     // Validate inputs
-    if (newInputs.length < 2) {
+    if (newInputs.length < 2 || inputParts.some(value => value === '') || newInputs.some(value => !Number.isFinite(value))) {
       showError('Please enter at least two valid numbers separated by commas.');
       
       // Add error class to the input
@@ -458,9 +466,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     
-    // Check for division by zero
-    if (calcTypeInput.value === 'division' && newInputs.some((value, index) => index > 0 && value === 0)) {
-      showError('Division by zero is not allowed.');
+    // Check operations whose divisor cannot be zero
+    if ((calcTypeInput.value === 'division' || calcTypeInput.value === 'modulus') && newInputs.some((value, index) => index > 0 && value === 0)) {
+      showError(`${calcTypeInput.value === 'division' ? 'Division' : 'Modulus'} by zero is not allowed.`);
       return;
     }
 

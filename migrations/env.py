@@ -18,6 +18,8 @@ if str(PROJECT_ROOT) not in sys.path:
 # Import your app config and metadata
 from app.core.config import get_settings
 from app.database import Base
+from app.models.calculation import Calculation  # noqa: F401
+from app.models.user import User  # noqa: F401
 
 # Alembic Config object, provides access to values in alembic.ini
 config = context.config

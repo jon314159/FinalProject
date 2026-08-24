@@ -15,10 +15,11 @@ basic mathematical operations: addition, subtraction, multiplication, and divisi
 """
 
 import uuid
+import math
+from numbers import Real
 from typing import List
 
-from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, Float, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, DateTime, ForeignKey, JSON, Float, Uuid, func
 from sqlalchemy.orm import relationship, declared_attr
 
 from app.database import Base
@@ -38,7 +39,7 @@ class AbstractCalculation:
     @declared_attr
     def id(cls):
         return Column(
-            UUID(as_uuid=True),
+            Uuid(as_uuid=True),
             primary_key=True,
             default=uuid.uuid4,
             nullable=False,
@@ -47,7 +48,7 @@ class AbstractCalculation:
     @declared_attr
     def user_id(cls):
         return Column(
-            UUID(as_uuid=True),
+            Uuid(as_uuid=True),
             ForeignKey("users.id", ondelete="CASCADE"),
             nullable=False,
             index=True,
@@ -107,10 +108,36 @@ class AbstractCalculation:
             "division": Division,
             "modulus": Modulus,
         }
+        if hasattr(calculation_type, "value"):
+            calculation_type = calculation_type.value
+        if not isinstance(calculation_type, str):
+            raise ValueError("Calculation type must be a string.")
+
         calculation_class = calculation_classes.get(calculation_type.lower())
         if not calculation_class:
             raise ValueError(f"Unsupported calculation type: {calculation_type}")
         return calculation_class(user_id=user_id, inputs=inputs)
+
+    @staticmethod
+    def validated_inputs(inputs: List[float]) -> List[float]:
+        if not isinstance(inputs, list):
+            raise ValueError("Inputs must be a list of numbers.")
+        if len(inputs) < 2:
+            raise ValueError("Inputs must be a list with at least two numbers.")
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, Real)
+            or not math.isfinite(value)
+            for value in inputs
+        ):
+            raise ValueError("Inputs must contain only finite numbers.")
+        return inputs
+
+    @staticmethod
+    def validated_result(result: float) -> float:
+        if not math.isfinite(result):
+            raise ValueError("Calculation result must be a finite number.")
+        return result
 
     def get_result(self) -> float:
         raise NotImplementedError
@@ -130,55 +157,43 @@ class Addition(Calculation):
     __mapper_args__ = {"polymorphic_identity": "addition"}
 
     def get_result(self) -> float:
-        if not isinstance(self.inputs, list):
-            raise ValueError("Inputs must be a list of numbers.")
-        if len(self.inputs) < 2:
-            raise ValueError("Inputs must be a list with at least two numbers.")
-        return sum(self.inputs)
+        inputs = self.validated_inputs(self.inputs)
+        return self.validated_result(sum(inputs))
 
 
 class Subtraction(Calculation):
     __mapper_args__ = {"polymorphic_identity": "subtraction"}
 
     def get_result(self) -> float:
-        if not isinstance(self.inputs, list):
-            raise ValueError("Inputs must be a list of numbers.")
-        if len(self.inputs) < 2:
-            raise ValueError("Inputs must be a list with at least two numbers.")
-        result = self.inputs[0]
-        for value in self.inputs[1:]:
+        inputs = self.validated_inputs(self.inputs)
+        result = inputs[0]
+        for value in inputs[1:]:
             result -= value
-        return result
+        return self.validated_result(result)
 
 
 class Multiplication(Calculation):
     __mapper_args__ = {"polymorphic_identity": "multiplication"}
 
     def get_result(self) -> float:
-        if not isinstance(self.inputs, list):
-            raise ValueError("Inputs must be a list of numbers.")
-        if len(self.inputs) < 2:
-            raise ValueError("Inputs must be a list with at least two numbers.")
+        inputs = self.validated_inputs(self.inputs)
         result = 1
-        for value in self.inputs:
+        for value in inputs:
             result *= value
-        return result
+        return self.validated_result(result)
 
 
 class Division(Calculation):
     __mapper_args__ = {"polymorphic_identity": "division"}
 
     def get_result(self) -> float:
-        if not isinstance(self.inputs, list):
-            raise ValueError("Inputs must be a list of numbers.")
-        if len(self.inputs) < 2:
-            raise ValueError("Inputs must be a list with at least two numbers.")
-        result = self.inputs[0]
-        for value in self.inputs[1:]:
+        inputs = self.validated_inputs(self.inputs)
+        result = inputs[0]
+        for value in inputs[1:]:
             if value == 0:
                 raise ValueError("Cannot divide by zero.")
             result /= value
-        return result
+        return self.validated_result(result)
 
 
 class Modulus(Calculation):
@@ -188,11 +203,10 @@ class Modulus(Calculation):
     __mapper_args__ = {"polymorphic_identity": "modulus"}
 
     def get_result(self) -> float:
-        if not isinstance(self.inputs, list):
-            raise ValueError("Inputs must be a list of numbers.")
-        if len(self.inputs) < 2:
-            raise ValueError("Inputs must be a list with at least two numbers.")
-        result = self.inputs[0]
-        for value in self.inputs[1:]:
+        inputs = self.validated_inputs(self.inputs)
+        result = inputs[0]
+        for value in inputs[1:]:
+            if value == 0:
+                raise ValueError("Cannot calculate modulus by zero.")
             result %= value
-        return result
+        return self.validated_result(result)

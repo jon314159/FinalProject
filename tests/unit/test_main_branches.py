@@ -251,6 +251,23 @@ def test_update_calculation_success_inputs_changed(db_session):
         client.close()
 
 
+def test_update_modulus_by_zero_returns_400(db_session):
+    user = create_user_in_db(db_session)
+
+    def override_db():
+        yield db_session
+
+    client, _ = make_client(override_db, user=user)
+    try:
+        created = client.post("/calculations", json={"type": "modulus", "inputs": [10, 3]}).json()
+        response = client.put(f"/calculations/{created['id']}", json={"inputs": [10, 0]})
+        assert response.status_code == 400
+        assert "modulus by zero" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+        client.close()
+
+
 def test_update_calculation_no_inputs_branch(db_session):
     # Covers the path where inputs is None (skip the two assignment lines)
     user = create_user_in_db(db_session)

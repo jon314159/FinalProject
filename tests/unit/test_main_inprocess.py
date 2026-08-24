@@ -112,6 +112,24 @@ def test_login_form_endpoint(client, monkeypatch):
     assert r.json()["access_token"] == "formtoken"
 
 
+def test_refresh_token_endpoint(client, db_session, fake_user_data):
+    fake_user_data["password"] = "ValidPass123!"
+    user = User.register(db_session, fake_user_data)
+    db_session.commit()
+    refresh_token = User.create_refresh_token({"sub": str(user.id)})
+
+    response = client.post("/auth/refresh", json={"refresh_token": refresh_token})
+
+    assert response.status_code == 200, response.text
+    assert User.verify_token(response.json()["access_token"]) == user.id
+
+
+def test_refresh_token_endpoint_rejects_access_token(client):
+    access_token = User.create_access_token({"sub": str(uuid4())})
+    response = client.post("/auth/refresh", json={"refresh_token": access_token})
+    assert response.status_code == 401
+
+
 def test_calc_create_valueerror_path(client, monkeypatch):
     # Force ValueError so the except branch returns 400
     def raise_value_error(**kwargs):

@@ -135,7 +135,7 @@ def test_short_password_registration(db_session):
     }
     
     # Attempt registration with short password
-    with pytest.raises(ValueError, match="Password must be at least 6 characters long"):
+    with pytest.raises(ValueError, match="Password must be at least 8 characters long"):
         User.register(db_session, test_data)
 
 def test_invalid_token():
@@ -156,6 +156,34 @@ def test_token_creation_and_verification(db_session, fake_user_data):
     # Verify token
     decoded_user_id = User.verify_token(token)
     assert decoded_user_id == user.id
+
+
+def test_refresh_token_exchange(db_session, fake_user_data):
+    fake_user_data["password"] = "TestPass123"
+    user = User.register(db_session, fake_user_data)
+    db_session.commit()
+
+    original_refresh = User.create_refresh_token({"sub": str(user.id)})
+    result = User.refresh_access_token(db_session, original_refresh)
+
+    assert result["user"].id == user.id
+    assert result["refresh_token"] != original_refresh
+    assert User.verify_token(result["access_token"]) == user.id
+    assert User.verify_token(original_refresh) is None
+
+
+def test_refresh_rejects_access_token(db_session, test_user):
+    access_token = User.create_access_token({"sub": str(test_user.id)})
+
+    with pytest.raises(ValueError, match="Invalid or expired refresh token"):
+        User.refresh_access_token(db_session, access_token)
+
+
+def test_inactive_user_cannot_authenticate(db_session, test_user):
+    test_user.is_active = False
+    db_session.commit()
+
+    assert User.authenticate(db_session, test_user.username, "unused") is None
 
 def test_authenticate_with_email(db_session, fake_user_data):
     """Test authentication using email instead of username"""
@@ -189,5 +217,5 @@ def test_missing_password_registration(db_session):
     }
     
     # Adjust the expected error message
-    with pytest.raises(ValueError, match="Password must be at least 6 characters long"):
+    with pytest.raises(ValueError, match="Password must be at least 8 characters long"):
         User.register(db_session, test_data)

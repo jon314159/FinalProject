@@ -17,8 +17,7 @@ The User model is designed to follow security best practices:
 
 import uuid
 from datetime import datetime, timezone, timedelta
-from sqlalchemy import Column, String, Boolean, DateTime, or_
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import Column, String, Boolean, DateTime, Uuid, or_, true, false
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from app.core.config import get_settings
 from app.database import Base
@@ -54,7 +53,7 @@ class User(Base):
 
     # Primary key and identifying fields
     id = Column(
-        PG_UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         unique=True,
@@ -71,8 +70,8 @@ class User(Base):
     last_name = Column(String(50), nullable=False)
 
     # Status flags for account management
-    is_active = Column(Boolean, default=True)
-    is_verified = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True, server_default=true(), nullable=False)
+    is_verified = Column(Boolean, default=False, server_default=false(), nullable=False)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
@@ -171,8 +170,8 @@ class User(Base):
             ValueError: If password is invalid or username/email already exists.
         """
         password = user_data.get("password")
-        if not password or len(password) < 6:
-            raise ValueError("Password must be at least 6 characters long")
+        if not password or len(password) < 8:
+            raise ValueError("Password must be at least 8 characters long")
 
         # Check for duplicate email or username
         existing_user = db.query(cls).filter(
@@ -211,7 +210,7 @@ class User(Base):
             or_(cls.username == username_or_email, cls.email == username_or_email)
         ).first()
 
-        if not user or not user.verify_password(password):
+        if not user or not user.is_active or not user.verify_password(password):
             return None
 
         # Update last_login
@@ -262,6 +261,31 @@ class User(Base):
         return create_token(data["sub"], TokenType.REFRESH)
 
     @classmethod
+    def refresh_access_token(cls, db, refresh_token: str):
+        """Exchange a valid refresh token for a fresh token pair."""
+        from fastapi import HTTPException
+
+        from app.auth.jwt import decode_token
+        from app.schemas.token import TokenType
+
+        try:
+            payload = decode_token(refresh_token, TokenType.REFRESH)
+            user_id = uuid.UUID(payload["sub"])
+        except (HTTPException, KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Invalid or expired refresh token") from exc
+
+        user = db.get(cls, user_id)
+        if user is None or not user.is_active:
+            raise ValueError("Invalid or expired refresh token")
+
+        return {
+            "access_token": cls.create_access_token({"sub": str(user.id)}),
+            "refresh_token": cls.create_refresh_token({"sub": str(user.id)}),
+            "expires_at": utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+            "user": user,
+        }
+
+    @classmethod
     def verify_token(cls, token: str):
         """
         Verify a JWT token and return the user identifier.
@@ -272,19 +296,13 @@ class User(Base):
         Returns:
             UUID | None: User ID if token is valid, None otherwise.
         """
-        from app.core.config import settings
-        from jose import jwt
-        from jose.exceptions import JWTError
+        from fastapi import HTTPException
+
+        from app.auth.jwt import decode_token
+        from app.schemas.token import TokenType
 
         try:
-            alg = getattr(settings, "JWT_ALGORITHM", None) or getattr(settings, "ALGORITHM", "HS256")
-            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[alg])
-            sub = payload.get("sub")
-            if sub is None:
-                return None
-            try:
-                return uuid.UUID(sub)
-            except (ValueError, TypeError):
-                return None
-        except JWTError:
+            payload = decode_token(token, TokenType.ACCESS)
+            return uuid.UUID(payload["sub"])
+        except (HTTPException, KeyError, TypeError, ValueError):
             return None
