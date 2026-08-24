@@ -2,105 +2,105 @@ name: CI/CD
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:latest
+        image: postgres:17
         env:
           POSTGRES_USER: user
           POSTGRES_PASSWORD: password
-          POSTGRES_DB: mytestdb  # <-- Dedicated test DB name
+          POSTGRES_DB: mytestdb
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U user -d mytestdb"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql://user:password@localhost:5432/mytestdb
+      JWT_SECRET_KEY: ci-access-secret-key-with-at-least-32-characters
+      JWT_REFRESH_SECRET_KEY: ci-refresh-secret-key-with-at-least-32-characters
     steps:
-      - uses: actions/checkout@v3
-      
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
         with:
-          python-version: '3.10'
-          
-      - uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-      
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
       - name: Install dependencies
-        env:
-          DATABASE_URL: postgresql://user:password@localhost:5432/mytestdb
         run: |
-          python -m venv venv
-          source venv/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          playwright install  # if you use Playwright for e2e tests
-      
-      - name: Run tests
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Audit Python dependencies
+        run: python -m pip_audit -r requirements-dev.txt --progress-spinner off
+
+      - name: Verify migrations
         env:
-          DATABASE_URL: postgresql://user:password@localhost:5432/mytestdb
-        run: |
-          source venv/bin/activate
-          
-          # 1) Unit tests
-          pytest tests/unit/ --cov=src --junitxml=test-results/junit.xml
-          
-          # 2) Integration tests
-          pytest tests/integration/
-          
-          # 3) E2E or other tests
-          pytest tests/e2e/
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+        run: alembic upgrade head
+
+      - name: Run unit and integration tests
+        run: pytest tests/unit tests/integration --junitxml=junit.xml
+
+      - name: Run end-to-end tests
+        run: pytest tests/e2e --e2e
 
   security:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      
+      - uses: actions/checkout@v7
+
       - name: Build image
         run: docker build -t app:test .
-      
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+
+      - name: Scan image for known vulnerabilities
+        uses: aquasecurity/trivy-action@0.36.0
         with:
-          image-ref: 'app:test'
-          format: 'table'
-          exit-code: '1'
+          image-ref: app:test
+          format: table
+          exit-code: "1"
           ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
-  
+          severity: CRITICAL,HIGH
+
   deploy:
     needs: security
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
-      
-      - uses: docker/setup-buildx-action@v3
-      
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          
-      - uses: docker/build-push-action@v5
+
+      - uses: docker/build-push-action@v7
         with:
+          context: .
           push: true
           tags: |
-            jonathancapalbo1/assignment14:latest
-            jonathancapalbo1/assignment14:${{ github.sha }}
+            jonathancapalbo1/finalproject:latest
+            jonathancapalbo1/finalproject:${{ github.sha }}
           platforms: linux/amd64,linux/arm64
-          cache-from: type=registry,ref=jonathancapalbo1/assignment14:cache
+          cache-from: type=registry,ref=jonathancapalbo1/finalproject:cache
           cache-to: type=inline,mode=max

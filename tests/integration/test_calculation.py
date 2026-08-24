@@ -51,6 +51,25 @@ def test_modulus_get_result():
     result = modulus.get_result()
     assert result == 1.0, f"Expected 1.0, got {result}"
 
+
+def test_modulus_by_zero():
+    modulus = Modulus(user_id=dummy_user_id(), inputs=[10.0, 0.0])
+    with pytest.raises(ValueError, match="Cannot calculate modulus by zero"):
+        modulus.get_result()
+
+
+@pytest.mark.parametrize("invalid_value", [float("inf"), float("-inf"), float("nan"), True])
+def test_calculations_reject_non_finite_or_boolean_inputs(invalid_value):
+    addition = Addition(user_id=dummy_user_id(), inputs=[1.0, invalid_value])
+    with pytest.raises(ValueError, match="finite numbers"):
+        addition.get_result()
+
+
+def test_calculation_rejects_non_finite_result():
+    multiplication = Multiplication(user_id=dummy_user_id(), inputs=[1e308, 1e308])
+    with pytest.raises(ValueError, match="result must be a finite number"):
+        multiplication.get_result()
+
 def test_division_by_zero():
     """Test that Division.get_result raises ValueError when dividing by zero."""
     inputs = [50.0, 0.0, 5.0]

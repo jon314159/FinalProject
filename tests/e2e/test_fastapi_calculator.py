@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 import pytest
 import requests
+from playwright.sync_api import expect
 
 # Import the Calculation model for direct model tests.
 from app.models.calculation import Calculation
@@ -318,3 +319,33 @@ def test_model_division():
     with pytest.raises(ValueError):
         calc_zero = Calculation.create("division", dummy_user_id, [100, 0])
         calc_zero.get_result()
+
+
+@pytest.mark.e2e
+def test_browser_registration_login_and_calculation(page, base_url):
+    """Exercise the browser UI from registration through a saved result."""
+    unique = uuid4().hex[:10]
+    username = f"browser_{unique}"
+    password = "SecurePass123!"
+
+    page.goto(f"{base_url}/register")
+    page.locator("#username").fill(username)
+    page.locator("#email").fill(f"{username}@example.com")
+    page.locator("#first_name").fill("Browser")
+    page.locator("#last_name").fill("Test")
+    page.locator("#password").fill(password)
+    page.locator("#confirm_password").fill(password)
+    page.locator("#registrationForm button[type='submit']").click()
+    page.wait_for_url("**/login", timeout=10_000)
+
+    page.locator("#username").fill(username)
+    page.locator("#password").fill(password)
+    page.locator("#loginForm button[type='submit']").click()
+    page.wait_for_url("**/dashboard", timeout=10_000)
+
+    page.locator("#calcType").select_option("modulus")
+    page.locator("#calcInputs").fill("10, 3")
+    page.locator("#calculationForm button[type='submit']").click()
+
+    expect(page.locator("#successMessage")).to_contain_text("Calculation complete: 1")
+    expect(page.locator("#calculationsTable")).to_contain_text("modulus")

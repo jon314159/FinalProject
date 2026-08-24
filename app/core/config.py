@@ -1,11 +1,12 @@
 # app/config.py
 from functools import lru_cache
-from pydantic_settings import BaseSettings
-from typing import Optional, List
+from typing import List, Optional
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    # Database settings (keeping your existing default)
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/fastapi_db"
+    TEST_DATABASE_URL: Optional[str] = None
     
     # JWT Settings
     JWT_SECRET_KEY: str = "your-super-secret-key-change-this-in-production"
@@ -16,19 +17,17 @@ class Settings(BaseSettings):
     
     # Security
     BCRYPT_ROUNDS: int = 12
-    CORS_ORIGINS: List[str] = ["*"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:3000",
+    ]
     
-    # Redis (optional, for token blacklisting)
-    REDIS_URL: Optional[str] = "redis://localhost:6379/0"
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
-# Create a global settings instance
 settings = Settings()
 
-# Optional: Add cached settings getter
+
 @lru_cache()
 def get_settings() -> Settings:
     return Settings()

@@ -80,6 +80,22 @@ def test_calculation_update_no_fields():
     calc_update = CalculationUpdate()
     assert calc_update.inputs is None
 
+
+@pytest.mark.parametrize("calculation_type", ["division", "modulus"])
+def test_calculation_create_rejects_zero_divisor(calculation_type):
+    with pytest.raises(ValidationError):
+        CalculationCreate(
+            type=calculation_type,
+            inputs=[10, 0],
+            user_id=uuid4(),
+        )
+
+
+@pytest.mark.parametrize("inputs", [[1, float("inf")], [1, float("nan")], [1, True]])
+def test_calculation_schemas_reject_invalid_numbers(inputs):
+    with pytest.raises(ValidationError):
+        CalculationUpdate(inputs=inputs)
+
 def test_calculation_response_valid():
     """Test creating a valid CalculationResponse schema."""
     data = {

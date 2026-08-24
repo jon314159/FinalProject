@@ -3,12 +3,11 @@ Calculation Schemas Module
 """
 
 from enum import Enum
+import math
 from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator
 from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
-
-from app.models.calculation import Modulus
 
 class CalculationType(str, Enum):
     ADDITION = "addition"
@@ -43,15 +42,20 @@ class CalculationBase(BaseModel):
     def check_inputs_is_list(cls, v):
         if not isinstance(v, list):
             raise ValueError("Input should be a valid list")
+        if any(isinstance(value, bool) for value in v):
+            raise ValueError("Inputs must contain only numbers")
         return v
 
     @model_validator(mode="after")
     def validate_inputs(self) -> "CalculationBase":
         if len(self.inputs) < 2:
             raise ValueError("At least two numbers are required for calculation")
-        if self.type == CalculationType.DIVISION:
+        if any(not math.isfinite(value) for value in self.inputs):
+            raise ValueError("Inputs must contain only finite numbers")
+        if self.type in (CalculationType.DIVISION, CalculationType.MODULUS):
             if any(x == 0 for x in self.inputs[1:]):
-                raise ValueError("Cannot divide by zero")
+                operation = "divide" if self.type == CalculationType.DIVISION else "calculate modulus"
+                raise ValueError(f"Cannot {operation} by zero")
         return self
 
     model_config = ConfigDict(
@@ -91,10 +95,21 @@ class CalculationUpdate(BaseModel):
         min_length=2,
     )
 
+    @field_validator("inputs", mode="before")
+    @classmethod
+    def check_inputs(cls, value):
+        if value is not None and not isinstance(value, list):
+            raise ValueError("Input should be a valid list")
+        if value is not None and any(isinstance(item, bool) for item in value):
+            raise ValueError("Inputs must contain only numbers")
+        return value
+
     @model_validator(mode="after")
     def validate_inputs(self) -> "CalculationUpdate":
         if self.inputs is not None and len(self.inputs) < 2:
             raise ValueError("At least two numbers are required for calculation")
+        if self.inputs is not None and any(not math.isfinite(value) for value in self.inputs):
+            raise ValueError("Inputs must contain only finite numbers")
         return self
 
     model_config = ConfigDict(

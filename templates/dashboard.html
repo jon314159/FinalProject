@@ -406,12 +406,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const submitButton = form.querySelector('button[type="submit"]');
     const originalButtonContent = submitButton.innerHTML;
     
-    const inputsVal = document.getElementById('calcInputs').value;
-    const inputs = inputsVal.split(',')
-      .map(num => parseFloat(num.trim()))
-      .filter(num => !isNaN(num));
+    const inputParts = document.getElementById('calcInputs').value
+      .split(',')
+      .map(value => value.trim());
+    const inputs = inputParts.map(Number);
 
-    if (inputs.length < 2) {
+    if (inputs.length < 2 || inputParts.some(value => value === '') || inputs.some(value => !Number.isFinite(value))) {
       showError('Please enter at least two valid numbers, separated by commas');
       
       // Highlight the input field with an error state
@@ -430,6 +430,11 @@ document.addEventListener('DOMContentLoaded', function() {
       type: document.getElementById('calcType').value,
       inputs
     };
+
+    if ((newCalc.type === 'division' || newCalc.type === 'modulus') && inputs.slice(1).includes(0)) {
+      showError(`${newCalc.type === 'division' ? 'Division' : 'Modulus'} by zero is not allowed.`);
+      return;
+    }
 
     // Show loading state in the button
     submitButton.disabled = true;

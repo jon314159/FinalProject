@@ -2,6 +2,7 @@
 import os
 import socket
 import subprocess
+import sys
 import time
 import logging
 from typing import Generator, Dict, List
@@ -13,10 +14,14 @@ from faker import Faker
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
-from playwright.sync_api import sync_playwright, Browser, Page
+from playwright.sync_api import sync_playwright, Browser
+
+# Tests must never fall back to the application's production database. CI can
+# opt into PostgreSQL by setting TEST_DATABASE_URL explicitly.
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL") or "sqlite+pysqlite:///:memory:"
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 from app.database import Base, get_engine, get_sessionmaker
-from app.core.config import settings
 
 # Import all model modules so Base.metadata is fully populated
 from app.models.user import User
@@ -38,8 +43,7 @@ logger = logging.getLogger(__name__)
 fake = Faker()
 Faker.seed(12345)
 
-# Use settings.DATABASE_URL for now
-db_url = settings.DATABASE_URL
+db_url = TEST_DATABASE_URL
 test_engine = get_engine(database_url=db_url)
 TestingSessionLocal = get_sessionmaker(engine=test_engine)
 
@@ -71,10 +75,10 @@ def wait_for_server(url: str, timeout: int = 30) -> bool:
     start_time = time.time()
     while (time.time() - start_time) < timeout:
         try:
-            r = requests.get(url)
+            r = requests.get(url, timeout=1)
             if r.status_code == 200:
                 return True
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.RequestException:
             time.sleep(1)
     return False
 
@@ -87,20 +91,11 @@ class ServerStartupError(Exception):
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database(request):
     """
-    Hard reset the schema at session start and end.
-    Works on Postgres and falls back for other dialects.
+    Recreate only the application's tables at session start and end.
     """
     logger.info("Resetting test schema at session start...")
 
-    if test_engine.dialect.name == "postgresql":
-        with test_engine.begin() as conn:
-            conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
-            conn.execute(text("CREATE SCHEMA public"))
-    else:
-        # For sqlite and others
-        Base.metadata.drop_all(bind=test_engine)
-
-    # Create tables from SQLAlchemy metadata
+    Base.metadata.drop_all(bind=test_engine)
     Base.metadata.create_all(bind=test_engine)
     logger.info("Tables created.")
 
@@ -108,12 +103,7 @@ def setup_test_database(request):
 
     if not request.config.getoption("--preserve-db"):
         logger.info("Resetting test schema at session end...")
-        if test_engine.dialect.name == "postgresql":
-            with test_engine.begin() as conn:
-                conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
-                conn.execute(text("CREATE SCHEMA public"))
-        else:
-            Base.metadata.drop_all(bind=test_engine)
+        Base.metadata.drop_all(bind=test_engine)
         logger.info("Schema reset complete.")
 
 # Truncate data before each test
@@ -199,8 +189,8 @@ def fastapi_server():
     logger.info(f"Starting FastAPI server on port {base_port}...")
     env = {**os.environ, "DATABASE_URL": db_url, "TEST_DATABASE_URL": db_url}
     process = subprocess.Popen(
-        ["uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(base_port)],
-        stdout=subprocess.PIPE,
+        [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(base_port)],
+        stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
         cwd=".",
@@ -209,9 +199,13 @@ def fastapi_server():
 
     health_url = f"{server_url}health"
     if not wait_for_server(health_url, timeout=30):
-        stderr = process.stderr.read() if process.stderr is not None else ""
-        logger.error(f"Server failed to start. Uvicorn error: {stderr}")
         process.terminate()
+        try:
+            _, stderr = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            _, stderr = process.communicate()
+        logger.error(f"Server failed to start. Uvicorn error: {stderr}")
         raise ServerStartupError(f"Failed to start test server on {health_url}")
 
     logger.info(f"Test server running on {server_url}.")
@@ -220,10 +214,11 @@ def fastapi_server():
     logger.info("Stopping test server...")
     process.terminate()
     try:
-        process.wait(timeout=5)
+        process.communicate(timeout=5)
         logger.info("Test server stopped.")
     except subprocess.TimeoutExpired:
         process.kill()
+        process.communicate()
         logger.warning("Test server forcefully stopped.")
 
 # ======================================================================================

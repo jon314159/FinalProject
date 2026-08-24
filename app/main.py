@@ -36,6 +36,7 @@ from app.schemas.calculation import CalculationBase, CalculationResponse, Calcul
 from app.schemas.token import TokenResponse
 from app.schemas.user import UserCreate, UserResponse, UserLogin
 from app.database import Base, get_db, engine
+from app.core.config import settings
 
 # ------------------------------------------------------------------------------
 # Lifespan: create tables on startup for dev
@@ -74,7 +75,7 @@ app = FastAPI(
 # ------------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000", "http://localhost:3000"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
@@ -101,27 +102,35 @@ templates = Jinja2Templates(directory="templates")
 # ------------------------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse, tags=["web"])
 def read_index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="index.html")
 
 @app.get("/login", response_class=HTMLResponse, tags=["web"])
 def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="login.html")
 
 @app.get("/register", response_class=HTMLResponse, tags=["web"])
 def register_page(request: Request):
-    return templates.TemplateResponse("register.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="register.html")
 
 @app.get("/dashboard", response_class=HTMLResponse, tags=["web"])
 def dashboard_page(request: Request):
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="dashboard.html")
 
 @app.get("/dashboard/view/{calc_id}", response_class=HTMLResponse, tags=["web"])
 def view_calculation_page(request: Request, calc_id: str):
-    return templates.TemplateResponse("view_calculation.html", {"request": request, "calc_id": calc_id})
+    return templates.TemplateResponse(
+        request=request,
+        name="view_calculation.html",
+        context={"calc_id": calc_id},
+    )
 
 @app.get("/dashboard/edit/{calc_id}", response_class=HTMLResponse, tags=["web"])
 def edit_calculation_page(request: Request, calc_id: str):
-    return templates.TemplateResponse("edit_calculation.html", {"request": request, "calc_id": calc_id})
+    return templates.TemplateResponse(
+        request=request,
+        name="edit_calculation.html",
+        context={"calc_id": calc_id},
+    )
 
 # ------------------------------------------------------------------------------
 # Health
@@ -137,15 +146,15 @@ def db_health(db: Session = Depends(get_db)):
         db.execute(text("SELECT 1"))               # TextClause is Executable
         # db.execute(select(1))                    # Select is Executable
         return {"status": "ok", "db": "connected"}
-    except OperationalError as e:
-        raise HTTPException(status_code=503, detail=f"DB not reachable: {str(e)}")
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="Database is not reachable") from exc
 
 # ------------------------------------------------------------------------------
 # Auth
 # ------------------------------------------------------------------------------
 @app.post("/auth/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED, tags=["auth"])
 def register(user_create: UserCreate, db: Session = Depends(get_db)):
-    user_data = user_create.dict(exclude={"confirm_password"})
+    user_data = user_create.model_dump(exclude={"confirm_password"})
     try:
         user = User.register(db, user_data)
         db.commit()
@@ -200,13 +209,13 @@ def login_form(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = D
             detail="Invalid username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    db.commit()
     return {"access_token": auth_result["access_token"], "token_type": "bearer"}
 
 @app.post("/auth/refresh", response_model=TokenResponse, tags=["auth"])
 def refresh_token(refresh_token: str = Body(..., embed=True), db: Session = Depends(get_db)):
     """
-    Exchange a valid refresh token for a new access token.
-    Assumes User.refresh_access_token implements verification and rotation.
+    Exchange a valid refresh token for a fresh access and refresh token pair.
     """
     try:
         new_tokens = User.refresh_access_token(db, refresh_token)
@@ -324,14 +333,18 @@ def update_calculation(
     if not calculation:
         raise HTTPException(status_code=404, detail="Calculation not found.")
 
-    if calculation_update.inputs is not None:
-        calculation.inputs = calculation_update.inputs
-        calculation.result = calculation.get_result()
+    try:
+        if calculation_update.inputs is not None:
+            calculation.inputs = calculation_update.inputs
+            calculation.result = calculation.get_result()
 
-    calculation.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(calculation)
-    return calculation
+        calculation.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(calculation)
+        return calculation
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 @app.delete("/calculations/{calc_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["calculations"])
 def delete_calculation(
