@@ -11,8 +11,11 @@ RUN groupadd --system appgroup \
     && useradd --system --gid appgroup --create-home appuser
 
 COPY requirements.txt ./
+# Packaging tools are only needed while dependencies are installed. Removing
+# them also removes pip's vendored msgpack from the runtime image.
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -r requirements.txt
+    && python -m pip install -r requirements.txt \
+    && python -m pip uninstall --yes setuptools pip
 
 COPY --chown=appuser:appgroup . .
 
